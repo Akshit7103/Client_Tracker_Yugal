@@ -16,6 +16,16 @@ from reportlab.lib.units import inch
 
 app = FastAPI(title="Meeting Dashboard")
 
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database with data from Excel on first run"""
+    try:
+        from init_data import init_database
+        init_database()
+    except Exception as e:
+        print(f"Startup initialization error: {e}")
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
