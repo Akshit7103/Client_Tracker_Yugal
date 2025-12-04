@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeting Management Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                <div class="header-logo">📅</div>
+                <div class="header-title-section">
+                    <span>Meeting Management</span>
+                    <span class="header-subtitle">Track and organize your client meetings</span>
+                </div>
+            </h1>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="openAddModal()">+ Add Meeting</button>
+                <button class="btn btn-secondary" onclick="openImportModal()">📄 Import</button>
+            </div>
+        </header>
+
+        <div class="filters-section">
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search in client, people, actions, address..." onkeyup="filterMeetings()">
+                <div class="advanced-filters">
+                    <button class="btn btn-secondary" onclick="toggleAdvancedFilters()">
+                        <span id="filterToggleIcon">▼</span> Advanced
+                    </button>
+                    <button class="btn btn-success" onclick="exportToExcel()">📄 Excel</button>
+                    <button class="btn btn-success" onclick="exportToPDF()">📄 PDF</button>
+                </div>
+            </div>
+
+            <div id="advancedFiltersPanel" class="advanced-filters-panel" style="display: none;">
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <label>Status:</label>
+                        <select id="filterStatus" onchange="filterMeetings()">
+                            <option value="">All</option>
+                            <option value="has_next">Has Next Meeting</option>
+                            <option value="no_next">No Next Meeting</option>
+                            <option value="has_actions">Actions Taken</option>
+                            <option value="no_actions">No Actions Taken</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="meetingsContainer" class="meetings-container"></div>
+    </div>
+
+    <!-- Add/Edit Meeting Modal -->
+    <div id="meetingModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalTitle">Add Meeting</h2>
+            <form id="meetingForm" onsubmit="saveMeeting(event)">
+                <input type="hidden" id="meetingId">
+
+                <div class="form-group">
+                    <label for="client">Client *</label>
+                    <input type="text" id="client" required list="clientList">
+                    <datalist id="clientList"></datalist>
+                </div>
+
+                <div class="form-group">
+                    <label for="peopleConnected">People Connected</label>
+                    <textarea id="peopleConnected" rows="3" placeholder="Names and designations..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="actions">Actions</label>
+                    <textarea id="actions" rows="4" placeholder="Action items and discussions..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="nextMeeting">Next Meeting</label>
+                    <textarea id="nextMeeting" rows="2" placeholder="Next meeting details..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="address">Address</label>
+                    <textarea id="address" rows="2" placeholder="Office address..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="actionsTaken">Actions Taken</label>
+                    <textarea id="actionsTaken" rows="3" placeholder="Completed actions..."></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeImportModal()">&times;</span>
+            <h2>Import Excel File</h2>
+            <form id="importForm" onsubmit="importExcel(event)">
+                <div class="form-group">
+                    <label for="excelFile">Select Excel File</label>
+                    <input type="file" id="excelFile" accept=".xlsx,.xls" required>
+                    <p class="help-text">Upload your existing Excel file to import all meetings</p>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Import</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
