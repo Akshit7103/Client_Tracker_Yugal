@@ -502,6 +502,23 @@ def export_to_pdf(request: ExportRequest, db: Session = Depends(get_db)):
 async def send_reminder_now(db: Session = Depends(get_db)):
     """Send meeting reminder email immediately (for testing)"""
     try:
+        # Check if email configuration exists
+        try:
+            from email_config import SENDGRID_API_KEY, DEFAULT_RECIPIENT_EMAIL, DEFAULT_RECIPIENT_NAME
+
+            if not SENDGRID_API_KEY:
+                return {
+                    "success": False,
+                    "message": "Email not configured. Please set SENDGRID_API_KEY environment variable on Render.",
+                    "count": 0
+                }
+        except ImportError as e:
+            return {
+                "success": False,
+                "message": f"Email configuration error: {str(e)}",
+                "count": 0
+            }
+
         from email_scheduler import MeetingReminderScheduler
 
         scheduler = MeetingReminderScheduler()
@@ -517,7 +534,6 @@ async def send_reminder_now(db: Session = Depends(get_db)):
             }
 
         # Send email
-        from email_config import DEFAULT_RECIPIENT_EMAIL, DEFAULT_RECIPIENT_NAME
         success = scheduler.email_service.send_meeting_reminder_email(
             to_email=DEFAULT_RECIPIENT_EMAIL,
             meetings=upcoming_meetings,
@@ -538,7 +554,9 @@ async def send_reminder_now(db: Session = Depends(get_db)):
             ]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error sending reminder: {str(e)}")
+        import traceback
+        error_detail = f"Error: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/api/email/upcoming-meetings")
 async def get_upcoming_meetings_for_email(db: Session = Depends(get_db)):
