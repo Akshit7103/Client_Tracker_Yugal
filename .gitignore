@@ -44,7 +44,11 @@ meetings.db
 .env
 .env.local
 
+# Email Configuration (contains sensitive API keys)
+email_config.py
+
 # Temporary files
 *.tmp
 *.bak
 *.old
+nul

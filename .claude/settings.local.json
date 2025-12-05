@@ -4,7 +4,14 @@
       "Bash(dir:*)",
       "Bash(python:*)",
       "Bash(rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(curl:*)",
+      "Bash(timeout 5 bash:*)",
+      "Bash(del \"C:\\Users\\akshi\\OneDrive\\Desktop\\New folder - Copy\\Client_Tracker_Yugal\\nul\")",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

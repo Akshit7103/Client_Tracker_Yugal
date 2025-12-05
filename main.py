@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from database import Meeting, get_db, engine, Base
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
@@ -37,6 +37,7 @@ class MeetingBase(BaseModel):
     next_meeting: Optional[str] = None
     address: Optional[str] = None
     actions_taken: Optional[str] = None
+    meeting_date: Optional[date] = None
 
 class MeetingCreate(MeetingBase):
     pass
@@ -49,6 +50,7 @@ class MeetingResponse(MeetingBase):
     client_order: int
     global_order: int
     client_first_appearance: int
+    meeting_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
 
@@ -61,6 +63,12 @@ Base.metadata.create_all(bind=engine)
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     return FileResponse("static/index.html")
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Return a simple 204 No Content response for favicon requests"""
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
 @app.get("/api/meetings", response_model=List[MeetingResponse])
 def get_meetings(
@@ -157,6 +165,28 @@ def delete_meeting(meeting_id: int, db: Session = Depends(get_db)):
     db.delete(db_meeting)
     db.commit()
     return {"message": "Meeting deleted successfully"}
+
+# Bulk delete endpoint
+class BulkDeleteRequest(BaseModel):
+    meeting_ids: List[int]
+
+@app.post("/api/meetings/bulk-delete")
+def bulk_delete_meetings(request: BulkDeleteRequest, db: Session = Depends(get_db)):
+    try:
+        if not request.meeting_ids or len(request.meeting_ids) == 0:
+            raise HTTPException(status_code=400, detail="No meetings to delete")
+
+        # Delete all meetings with given IDs
+        deleted_count = db.query(Meeting).filter(Meeting.id.in_(request.meeting_ids)).delete(synchronize_session=False)
+        db.commit()
+
+        return {
+            "message": f"Successfully deleted {deleted_count} meeting(s)",
+            "deleted_count": deleted_count
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Error deleting meetings: {str(e)}")
 
 @app.get("/api/clients")
 def get_clients(db: Session = Depends(get_db)):
@@ -281,6 +311,7 @@ def export_to_excel(request: ExportRequest, db: Session = Depends(get_db)):
             data.append({
                 'Client': m.client,
                 'Update #': m.client_order,
+                'Meeting Date': m.meeting_date.strftime('%Y-%m-%d') if m.meeting_date else '',
                 'People Connected': m.people_connected or '',
                 'Actions': m.actions or '',
                 'Next Meeting': m.next_meeting or '',
@@ -310,11 +341,12 @@ def export_to_excel(request: ExportRequest, db: Session = Depends(get_db)):
             # Set column widths
             worksheet.set_column('A:A', 20)  # Client
             worksheet.set_column('B:B', 10)  # Update #
-            worksheet.set_column('C:C', 30)  # People Connected
-            worksheet.set_column('D:D', 40)  # Actions
-            worksheet.set_column('E:E', 30)  # Next Meeting
-            worksheet.set_column('F:F', 30)  # Address
-            worksheet.set_column('G:G', 30)  # Actions Taken
+            worksheet.set_column('C:C', 15)  # Meeting Date
+            worksheet.set_column('D:D', 30)  # People Connected
+            worksheet.set_column('E:E', 40)  # Actions
+            worksheet.set_column('F:F', 30)  # Next Meeting
+            worksheet.set_column('G:G', 30)  # Address
+            worksheet.set_column('H:H', 30)  # Actions Taken
 
             # Apply header format
             for col_num, value in enumerate(df.columns.values):
@@ -404,7 +436,10 @@ def export_to_pdf(request: ExportRequest, db: Session = Depends(get_db)):
                     spaceAfter=10
                 )
 
-                elements.append(Paragraph(f"Update {meeting.client_order}", meeting_title))
+                update_title_text = f"Update {meeting.client_order}"
+                if meeting.meeting_date:
+                    update_title_text += f" - {meeting.meeting_date.strftime('%b %d, %Y')}"
+                elements.append(Paragraph(update_title_text, meeting_title))
 
                 # Clean paragraph style for content
                 content_style = ParagraphStyle(
@@ -461,6 +496,75 @@ def export_to_pdf(request: ExportRequest, db: Session = Depends(get_db)):
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error exporting PDF: {str(e)}")
+
+# Email Reminder Endpoints
+@app.post("/api/email/send-reminder")
+async def send_reminder_now(db: Session = Depends(get_db)):
+    """Send meeting reminder email immediately (for testing)"""
+    try:
+        from email_scheduler import MeetingReminderScheduler
+
+        scheduler = MeetingReminderScheduler()
+
+        # Get upcoming meetings
+        upcoming_meetings = scheduler.get_upcoming_meetings(db)
+
+        if not upcoming_meetings:
+            return {
+                "success": False,
+                "message": "No upcoming meetings in the next 7 days",
+                "count": 0
+            }
+
+        # Send email
+        from email_config import DEFAULT_RECIPIENT_EMAIL, DEFAULT_RECIPIENT_NAME
+        success = scheduler.email_service.send_meeting_reminder_email(
+            to_email=DEFAULT_RECIPIENT_EMAIL,
+            meetings=upcoming_meetings,
+            recipient_name=DEFAULT_RECIPIENT_NAME
+        )
+
+        return {
+            "success": success,
+            "message": f"Reminder email sent to {DEFAULT_RECIPIENT_EMAIL}" if success else "Failed to send email",
+            "count": len(upcoming_meetings),
+            "meetings": [
+                {
+                    "client": m["client"],
+                    "next_meeting": m["next_meeting"],
+                    "days_left": m["days_left"]
+                }
+                for m in upcoming_meetings
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sending reminder: {str(e)}")
+
+@app.get("/api/email/upcoming-meetings")
+async def get_upcoming_meetings_for_email(db: Session = Depends(get_db)):
+    """Get list of upcoming meetings that would be included in reminder email"""
+    try:
+        from email_scheduler import MeetingReminderScheduler
+
+        scheduler = MeetingReminderScheduler()
+        upcoming_meetings = scheduler.get_upcoming_meetings(db)
+
+        return {
+            "count": len(upcoming_meetings),
+            "meetings": [
+                {
+                    "id": m["id"],
+                    "client": m["client"],
+                    "next_meeting": m["next_meeting"],
+                    "days_left": m["days_left"],
+                    "people_connected": m["people_connected"],
+                    "actions": m["actions"]
+                }
+                for m in upcoming_meetings
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching upcoming meetings: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

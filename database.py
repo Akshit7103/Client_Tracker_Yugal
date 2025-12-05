@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Date
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -22,6 +22,7 @@ class Meeting(Base):
     next_meeting = Column(String)
     address = Column(Text)
     actions_taken = Column(Text)
+    meeting_date = Column(Date, nullable=True)  # Date when the meeting took place
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     client_order = Column(Integer, default=0)  # Order within client group
