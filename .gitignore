@@ -45,7 +45,7 @@ meetings.db
 .env.local
 
 # Local email configuration (contains real API keys)
-email_config.local.py
+email_config_local.py
 
 # Temporary files
 *.tmp
