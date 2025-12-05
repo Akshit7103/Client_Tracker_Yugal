@@ -503,28 +503,66 @@ async def send_reminder_now(db: Session = Depends(get_db)):
     """Send meeting reminder email immediately (for testing)"""
     try:
         # Check if email configuration exists
-        try:
-            from email_config import SENDGRID_API_KEY, DEFAULT_RECIPIENT_EMAIL, DEFAULT_RECIPIENT_NAME
+        from email_config import SENDGRID_API_KEY, DEFAULT_RECIPIENT_EMAIL, DEFAULT_RECIPIENT_NAME, FROM_EMAIL
 
-            if not SENDGRID_API_KEY:
-                return {
-                    "success": False,
-                    "message": "Email not configured. Please set SENDGRID_API_KEY environment variable on Render.",
-                    "count": 0
-                }
-        except ImportError as e:
+        if not SENDGRID_API_KEY:
             return {
                 "success": False,
-                "message": f"Email configuration error: {str(e)}",
+                "message": "Email not configured. Please set SENDGRID_API_KEY environment variable on Render.",
                 "count": 0
             }
 
-        from email_scheduler import MeetingReminderScheduler
+        # Import email service directly
+        from email_service import EmailService
 
-        scheduler = MeetingReminderScheduler()
+        # Create email service
+        email_service = EmailService(
+            api_key=SENDGRID_API_KEY,
+            from_email=FROM_EMAIL
+        )
 
-        # Get upcoming meetings
-        upcoming_meetings = scheduler.get_upcoming_meetings(db)
+        # Get meetings with upcoming dates (simple version, no scheduler needed)
+        from datetime import datetime, timedelta
+        import re
+
+        all_meetings = db.query(Meeting).all()
+        upcoming_meetings = []
+        today = datetime.now()
+
+        for meeting in all_meetings:
+            if meeting.next_meeting:
+                # Try to parse date from next_meeting field
+                date_match = re.search(
+                    r'([A-Za-z]{3}),\s+([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})',
+                    meeting.next_meeting
+                )
+
+                if date_match:
+                    try:
+                        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        month_str = date_match.group(2)
+                        day = int(date_match.group(3))
+                        year = int(date_match.group(4))
+                        month = month_names.index(month_str) + 1
+
+                        meeting_date = datetime(year, month, day)
+                        days_until = (meeting_date.replace(hour=0, minute=0, second=0, microsecond=0) -
+                                    today.replace(hour=0, minute=0, second=0, microsecond=0)).days
+
+                        # Include meetings within next 7 days
+                        if 0 <= days_until <= 7:
+                            upcoming_meetings.append({
+                                'id': meeting.id,
+                                'client': meeting.client,
+                                'next_meeting': meeting.next_meeting,
+                                'days_left': days_until,
+                                'people_connected': meeting.people_connected or '-',
+                                'actions': meeting.actions or '-',
+                                'address': meeting.address or '-'
+                            })
+                    except:
+                        pass
 
         if not upcoming_meetings:
             return {
@@ -533,8 +571,11 @@ async def send_reminder_now(db: Session = Depends(get_db)):
                 "count": 0
             }
 
+        # Sort by days left
+        upcoming_meetings.sort(key=lambda x: x['days_left'])
+
         # Send email
-        success = scheduler.email_service.send_meeting_reminder_email(
+        success = email_service.send_meeting_reminder_email(
             to_email=DEFAULT_RECIPIENT_EMAIL,
             meetings=upcoming_meetings,
             recipient_name=DEFAULT_RECIPIENT_NAME
@@ -556,6 +597,7 @@ async def send_reminder_now(db: Session = Depends(get_db)):
     except Exception as e:
         import traceback
         error_detail = f"Error: {str(e)}\n{traceback.format_exc()}"
+        print(f"ERROR in send_reminder: {error_detail}")
         raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/api/email/upcoming-meetings")
