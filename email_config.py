@@ -15,7 +15,13 @@ except ImportError:
     print("INFO: Using environment variables for email configuration")
 
     # SendGrid Configuration
-    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", None)
+    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+
+    # Debug logging (will show in Render logs)
+    if SENDGRID_API_KEY:
+        print(f"DEBUG: SENDGRID_API_KEY is set (length: {len(SENDGRID_API_KEY)})")
+    else:
+        print("WARNING: SENDGRID_API_KEY is NOT set!")
 
     # Email Settings
     FROM_EMAIL = os.getenv("FROM_EMAIL", "akshit.mahajan713@gmail.com")
@@ -29,5 +35,8 @@ except ImportError:
     REMINDER_DAYS_THRESHOLD = int(os.getenv("REMINDER_DAYS_THRESHOLD", "7"))
     REMINDER_TIME_IST = os.getenv("REMINDER_TIME_IST", "08:00")
 
-    # Email Templates
-    EMAIL_SUBJECT_TEMPLATE = "Meeting Reminders - {date}"
+    print(f"DEBUG: FROM_EMAIL={FROM_EMAIL}")
+    print(f"DEBUG: DEFAULT_RECIPIENT_EMAIL={DEFAULT_RECIPIENT_EMAIL}")
+
+# Email Templates
+EMAIL_SUBJECT_TEMPLATE = "Meeting Reminders - {date}"
