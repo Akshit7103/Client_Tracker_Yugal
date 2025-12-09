@@ -193,6 +193,17 @@ def get_clients(db: Session = Depends(get_db)):
     clients = db.query(Meeting.client).distinct().all()
     return [{"name": client[0]} for client in clients if client[0]]
 
+@app.get("/api/clients/{client_name}/addresses")
+def get_client_addresses(client_name: str, db: Session = Depends(get_db)):
+    """Get unique addresses for a specific client"""
+    addresses = db.query(Meeting.address).filter(
+        Meeting.client == client_name,
+        Meeting.address.isnot(None),
+        Meeting.address != '',
+        Meeting.address != '-'
+    ).distinct().all()
+    return [{"address": addr[0]} for addr in addresses if addr[0]]
+
 @app.post("/api/import-excel")
 async def import_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
@@ -625,6 +636,83 @@ async def get_upcoming_meetings_for_email(db: Session = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching upcoming meetings: {str(e)}")
+
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats(db: Session = Depends(get_db)):
+    """Get dashboard KPI statistics"""
+    try:
+        from datetime import datetime, timedelta
+        import re
+
+        all_meetings = db.query(Meeting).all()
+
+        # Total unique clients
+        unique_clients = set(m.client for m in all_meetings if m.client)
+        total_clients = len(unique_clients)
+
+        # Total meetings
+        total_meetings = len(all_meetings)
+
+        # Active clients (meetings in last 30 days)
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        active_clients = set()
+        for meeting in all_meetings:
+            if meeting.updated_at and meeting.updated_at >= thirty_days_ago:
+                active_clients.add(meeting.client)
+
+        # Upcoming meetings (next 7 days)
+        today = datetime.now()
+        upcoming_count = 0
+        today_count = 0
+
+        for meeting in all_meetings:
+            if meeting.next_meeting:
+                date_match = re.search(
+                    r'([A-Za-z]{3}),\s+([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})',
+                    meeting.next_meeting
+                )
+                if date_match:
+                    try:
+                        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                        month_str = date_match.group(2)
+                        day = int(date_match.group(3))
+                        year = int(date_match.group(4))
+                        month = month_names.index(month_str) + 1
+
+                        meeting_date = datetime(year, month, day)
+                        days_until = (meeting_date.replace(hour=0, minute=0, second=0, microsecond=0) -
+                                    today.replace(hour=0, minute=0, second=0, microsecond=0)).days
+
+                        if 0 <= days_until <= 7:
+                            upcoming_count += 1
+                        if days_until == 0:
+                            today_count += 1
+                    except:
+                        pass
+
+        # Meetings requiring action (has actions but no actions_taken)
+        action_required = 0
+        for meeting in all_meetings:
+            has_actions = meeting.actions and meeting.actions.strip() and meeting.actions != '-'
+            no_actions_taken = not meeting.actions_taken or meeting.actions_taken.strip() == '' or meeting.actions_taken == '-'
+            if has_actions and no_actions_taken:
+                action_required += 1
+
+        # Average meetings per client
+        avg_meetings_per_client = round(total_meetings / total_clients, 1) if total_clients > 0 else 0
+
+        return {
+            "total_clients": total_clients,
+            "total_meetings": total_meetings,
+            "active_clients": len(active_clients),
+            "upcoming_meetings": upcoming_count,
+            "meetings_today": today_count,
+            "action_required": action_required,
+            "avg_meetings_per_client": avg_meetings_per_client
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching dashboard stats: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -15,8 +15,70 @@ const MAX_HISTORY = 50;
 document.addEventListener('DOMContentLoaded', () => {
     loadMeetings();
     loadClients();
+    loadDashboardStats();
     updateUndoRedoButtons();
+    initDarkMode();
 });
+
+// Dark Mode Functions
+function initDarkMode() {
+    // Check for saved preference or system preference
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        updateDarkModeIcon(true);
+    } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+        updateDarkModeIcon(false);
+    }
+
+    // Listen for system preference changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        if (!localStorage.getItem('theme')) {
+            const isDark = e.matches;
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            updateDarkModeIcon(isDark);
+        }
+    });
+}
+
+function toggleDarkMode() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const isDark = currentTheme === 'dark';
+    const newTheme = isDark ? 'light' : 'dark';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateDarkModeIcon(!isDark);
+
+    // Show feedback toast
+    showToast(`${newTheme === 'dark' ? 'Dark' : 'Light'} mode enabled`, 'success');
+}
+
+function updateDarkModeIcon(isDark) {
+    const icon = document.getElementById('darkModeIcon');
+    if (icon) {
+        if (isDark) {
+            // Sun icon for dark mode (click to switch to light)
+            icon.innerHTML = `
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            `;
+        } else {
+            // Moon icon for light mode (click to switch to dark)
+            icon.innerHTML = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`;
+        }
+    }
+}
 
 // Load all meetings from API
 async function loadMeetings() {
@@ -25,10 +87,66 @@ async function loadMeetings() {
         allMeetings = await response.json();
         filteredMeetings = allMeetings;
         applyFilters();
+        // Refresh dashboard stats when meetings are loaded
+        loadDashboardStats();
     } catch (error) {
         console.error('Error loading meetings:', error);
         showError('Failed to load meetings');
     }
+}
+
+// Load dashboard KPI statistics
+async function loadDashboardStats() {
+    try {
+        const response = await fetch('/api/dashboard/stats');
+        const stats = await response.json();
+
+        // Update KPI card values with animation
+        updateKpiValue('kpiTotalClients', stats.total_clients);
+        updateKpiValue('kpiActiveClients', stats.active_clients);
+        updateKpiValue('kpiUpcomingMeetings', stats.upcoming_meetings);
+        updateKpiValue('kpiMeetingsToday', stats.meetings_today);
+        updateKpiValue('kpiActionRequired', stats.action_required);
+        updateKpiValue('kpiTotalMeetings', stats.total_meetings);
+    } catch (error) {
+        console.error('Error loading dashboard stats:', error);
+        // Set default values on error
+        document.getElementById('kpiTotalClients').textContent = '0';
+        document.getElementById('kpiActiveClients').textContent = '0';
+        document.getElementById('kpiUpcomingMeetings').textContent = '0';
+        document.getElementById('kpiMeetingsToday').textContent = '0';
+        document.getElementById('kpiActionRequired').textContent = '0';
+        document.getElementById('kpiTotalMeetings').textContent = '0';
+    }
+}
+
+// Update KPI value with smooth animation
+function updateKpiValue(elementId, newValue) {
+    const element = document.getElementById(elementId);
+    const currentValue = parseInt(element.textContent) || 0;
+
+    if (currentValue === newValue) {
+        element.textContent = newValue;
+        return;
+    }
+
+    // Animate number change
+    const duration = 800; // ms
+    const steps = 30;
+    const stepValue = (newValue - currentValue) / steps;
+    const stepDuration = duration / steps;
+    let currentStep = 0;
+
+    const interval = setInterval(() => {
+        currentStep++;
+        if (currentStep >= steps) {
+            element.textContent = newValue;
+            clearInterval(interval);
+        } else {
+            const intermediateValue = Math.round(currentValue + (stepValue * currentStep));
+            element.textContent = intermediateValue;
+        }
+    }, stepDuration);
 }
 
 // Load all clients for autocomplete
@@ -116,9 +234,108 @@ function selectClient(clientName) {
     clientInput.value = clientName;
     dropdownMenu.classList.remove('show');
 
+    // Load addresses for this client
+    loadClientAddresses(clientName);
+
     // Focus on next field
     document.getElementById('peopleConnected')?.focus();
 }
+
+// Load addresses for a specific client
+async function loadClientAddresses(clientName) {
+    if (!clientName || clientName.trim() === '') {
+        // Clear address dropdown if no client selected
+        const addressSelect = document.getElementById('addressSelect');
+        addressSelect.innerHTML = '<option value="">Select existing address or type new...</option>';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/clients/${encodeURIComponent(clientName)}/addresses`);
+        const addresses = await response.json();
+
+        const addressSelect = document.getElementById('addressSelect');
+        addressSelect.innerHTML = '<option value="">Select existing address or type new...</option>';
+
+        // Add existing addresses as options
+        addresses.forEach(addr => {
+            const option = document.createElement('option');
+            option.value = addr.address;
+            option.textContent = addr.address;
+            addressSelect.appendChild(option);
+        });
+
+        // Add "Add New" option at the end
+        const newOption = document.createElement('option');
+        newOption.value = '__new__';
+        newOption.textContent = '+ Add New Address';
+        addressSelect.appendChild(newOption);
+
+    } catch (error) {
+        console.error('Error loading client addresses:', error);
+    }
+}
+
+// Toggle between address dropdown and text input
+let addressInputMode = 'select'; // 'select' or 'text'
+
+function toggleAddressInputMode() {
+    const addressSelect = document.getElementById('addressSelect');
+    const addressTextarea = document.getElementById('address');
+    const toggleBtn = document.getElementById('toggleAddressInput');
+
+    if (addressInputMode === 'select') {
+        // Switch to text input mode
+        addressInputMode = 'text';
+        addressSelect.style.display = 'none';
+        addressTextarea.style.display = 'block';
+        addressTextarea.value = '';
+        addressTextarea.focus();
+        toggleBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 11 12 14 22 4"></polyline>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+            </svg>
+            Use Existing Address
+        `;
+    } else {
+        // Switch to select mode
+        addressInputMode = 'select';
+        addressSelect.style.display = 'block';
+        addressTextarea.style.display = 'none';
+        toggleBtn.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add New Address
+        `;
+    }
+}
+
+// Handle address select change
+document.addEventListener('DOMContentLoaded', () => {
+    const addressSelect = document.getElementById('addressSelect');
+    if (addressSelect) {
+        addressSelect.addEventListener('change', (e) => {
+            if (e.target.value === '__new__') {
+                // User selected "Add New", switch to text input
+                toggleAddressInputMode();
+            }
+        });
+    }
+
+    // Watch for client input changes to load addresses
+    const clientInput = document.getElementById('client');
+    if (clientInput) {
+        clientInput.addEventListener('blur', () => {
+            const clientName = clientInput.value.trim();
+            if (clientName) {
+                loadClientAddresses(clientName);
+            }
+        });
+    }
+});
 
 // Apply all filters (search + advanced)
 function applyFilters() {
@@ -534,8 +751,15 @@ function createDetailItem(field, label, value, meetingId, showCalendar = false) 
 }
 
 // Enable inline editing
-function enableInlineEdit(element, meetingId, field) {
+async function enableInlineEdit(element, meetingId, field) {
     const currentValue = element.textContent === '-' ? '' : element.textContent;
+
+    // Special handling for address field - show dropdown
+    if (field === 'address') {
+        await enableInlineAddressEdit(element, meetingId, currentValue);
+        return;
+    }
+
     const textarea = document.createElement('textarea');
     textarea.className = 'inline-edit';
     textarea.value = currentValue;
@@ -550,6 +774,182 @@ function enableInlineEdit(element, meetingId, field) {
     element.replaceWith(textarea);
     textarea.parentNode.appendChild(actions);
     textarea.focus();
+}
+
+// Enable inline address editing with dropdown
+async function enableInlineAddressEdit(element, meetingId, currentValue) {
+    // Get the meeting to find the client name
+    const response = await fetch(`/api/meetings/${meetingId}`);
+    const meeting = await response.json();
+    const clientName = meeting.client;
+
+    // Load addresses for this client
+    const addressesResponse = await fetch(`/api/clients/${encodeURIComponent(clientName)}/addresses`);
+    const addresses = await addressesResponse.json();
+
+    // Create wrapper div
+    const wrapper = document.createElement('div');
+    wrapper.className = 'inline-address-edit-wrapper';
+
+    // Create select dropdown
+    const select = document.createElement('select');
+    select.className = 'inline-edit inline-address-select';
+    select.dataset.meetingId = meetingId;
+
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Select existing address or type new...';
+    select.appendChild(defaultOption);
+
+    // Add existing addresses
+    addresses.forEach(addr => {
+        const option = document.createElement('option');
+        option.value = addr.address;
+        option.textContent = addr.address;
+        if (addr.address === currentValue) {
+            option.selected = true;
+        }
+        select.appendChild(option);
+    });
+
+    // Add "Type new" option
+    const newOption = document.createElement('option');
+    newOption.value = '__new__';
+    newOption.textContent = '+ Type New Address';
+    select.appendChild(newOption);
+
+    // Create textarea (hidden by default)
+    const textarea = document.createElement('textarea');
+    textarea.className = 'inline-edit inline-address-textarea';
+    textarea.style.display = 'none';
+    textarea.value = currentValue;
+
+    // Handle select change
+    select.addEventListener('change', (e) => {
+        if (e.target.value === '__new__') {
+            select.style.display = 'none';
+            textarea.style.display = 'block';
+            textarea.value = currentValue;
+            textarea.focus();
+        }
+    });
+
+    // Create toggle button
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn btn-secondary btn-small inline-address-toggle';
+    toggleBtn.type = 'button';
+    toggleBtn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+        </svg>
+        Type New
+    `;
+    toggleBtn.onclick = () => {
+        if (select.style.display !== 'none') {
+            // Switch to textarea
+            select.style.display = 'none';
+            textarea.style.display = 'block';
+            textarea.focus();
+            toggleBtn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 22 4"></polyline>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+                Use Existing
+            `;
+        } else {
+            // Switch to select
+            select.style.display = 'block';
+            textarea.style.display = 'none';
+            toggleBtn.innerHTML = `
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                Type New
+            `;
+        }
+    };
+
+    // Create actions
+    const actions = document.createElement('div');
+    actions.className = 'inline-edit-actions';
+    actions.innerHTML = `
+        <button class="btn btn-primary" onclick="saveInlineAddressEdit(${meetingId}, this)">Save</button>
+        <button class="btn btn-secondary" onclick="cancelInlineEdit(this)">Cancel</button>
+    `;
+
+    // Build structure
+    wrapper.appendChild(select);
+    wrapper.appendChild(textarea);
+    wrapper.appendChild(toggleBtn);
+    wrapper.appendChild(actions);
+
+    element.replaceWith(wrapper);
+    select.focus();
+}
+
+// Save inline address edit
+async function saveInlineAddressEdit(meetingId, button) {
+    const container = button.parentNode.parentNode;
+    const select = container.querySelector('.inline-address-select');
+    const textarea = container.querySelector('.inline-address-textarea');
+
+    // Determine which input is active
+    let newValue = '';
+    if (select.style.display !== 'none') {
+        // Using dropdown
+        const selectValue = select.value;
+        newValue = (selectValue && selectValue !== '__new__') ? selectValue : '';
+    } else {
+        // Using textarea
+        newValue = textarea.value.trim();
+    }
+
+    try {
+        // Get current meeting data
+        const response = await fetch(`/api/meetings/${meetingId}`);
+        const previousMeeting = await response.json();
+        const meeting = {...previousMeeting};
+
+        // Update the address field
+        meeting.address = newValue || null;
+
+        // Save to server
+        const updateResponse = await fetch(`/api/meetings/${meetingId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(meeting)
+        });
+
+        if (updateResponse.ok) {
+            const updatedMeeting = await updateResponse.json();
+
+            // Save to undo stack
+            saveState('update', { id: meetingId, previous: previousMeeting, current: updatedMeeting });
+
+            // Replace with display text
+            const p = document.createElement('p');
+            p.onclick = () => enableInlineEdit(p, meetingId, 'address');
+            p.dataset.field = 'address';
+            p.textContent = newValue || '-';
+
+            container.replaceWith(p);
+
+            // Reload data
+            await loadMeetings();
+            showSuccess('Address updated successfully');
+        } else {
+            showError('Failed to update address');
+        }
+    } catch (error) {
+        console.error('Error saving address:', error);
+        showError('Failed to update address');
+    }
 }
 
 // Save inline edit
@@ -801,6 +1201,20 @@ function openAddModal() {
     document.getElementById('modalTitle').textContent = 'Add Meeting';
     document.getElementById('meetingForm').reset();
     document.getElementById('meetingId').value = '';
+
+    // Reset address field to select mode
+    addressInputMode = 'select';
+    document.getElementById('addressSelect').style.display = 'block';
+    document.getElementById('address').style.display = 'none';
+    document.getElementById('addressSelect').innerHTML = '<option value="">Select existing address or type new...</option>';
+    document.getElementById('toggleAddressInput').innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Add New Address
+    `;
+
     document.getElementById('meetingModal').style.display = 'block';
 }
 
@@ -816,8 +1230,42 @@ async function editMeeting(id) {
         document.getElementById('peopleConnected').value = meeting.people_connected || '';
         document.getElementById('actions').value = meeting.actions || '';
         document.getElementById('nextMeeting').value = meeting.next_meeting || '';
-        document.getElementById('address').value = meeting.address || '';
         document.getElementById('actionsTaken').value = meeting.actions_taken || '';
+
+        // Load addresses for the client
+        if (meeting.client) {
+            await loadClientAddresses(meeting.client);
+
+            // Check if current address exists in dropdown
+            const addressSelect = document.getElementById('addressSelect');
+            const currentAddress = meeting.address || '';
+            let addressFound = false;
+
+            for (let option of addressSelect.options) {
+                if (option.value === currentAddress) {
+                    addressSelect.value = currentAddress;
+                    addressFound = true;
+                    break;
+                }
+            }
+
+            // If address not in dropdown, switch to text mode and set it
+            if (!addressFound && currentAddress) {
+                addressInputMode = 'select'; // Set to select first so toggle works
+                toggleAddressInputMode(); // This will switch to text mode
+                document.getElementById('address').value = currentAddress;
+            } else if (!addressFound) {
+                // No address at all
+                addressInputMode = 'select';
+                document.getElementById('addressSelect').style.display = 'block';
+                document.getElementById('address').style.display = 'none';
+            } else {
+                // Address found in dropdown
+                addressInputMode = 'select';
+                document.getElementById('addressSelect').style.display = 'block';
+                document.getElementById('address').style.display = 'none';
+            }
+        }
 
         document.getElementById('meetingModal').style.display = 'block';
     } catch (error) {
@@ -831,12 +1279,22 @@ async function saveMeeting(event) {
     event.preventDefault();
 
     const meetingId = document.getElementById('meetingId').value;
+
+    // Get address from either dropdown or text input
+    let addressValue = '';
+    if (addressInputMode === 'select') {
+        const selectValue = document.getElementById('addressSelect').value;
+        addressValue = (selectValue && selectValue !== '__new__') ? selectValue : '';
+    } else {
+        addressValue = document.getElementById('address').value;
+    }
+
     const meetingData = {
         client: document.getElementById('client').value,
         people_connected: document.getElementById('peopleConnected').value,
         actions: document.getElementById('actions').value,
         next_meeting: document.getElementById('nextMeeting').value,
-        address: document.getElementById('address').value,
+        address: addressValue,
         actions_taken: document.getElementById('actionsTaken').value
     };
 
@@ -1212,14 +1670,34 @@ function openDatePicker(meetingId, field) {
     // Check if there's any date in the field (not just the extracted date)
     const hasDate = meeting && meeting[field] && meeting[field].match(/[A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}/i);
 
+    // Extract time if exists in the current value
+    const currentTime = meeting && meeting[field] ? extractTimeFromText(meeting[field]) : '';
+
     modal.innerHTML = `
         <div class="date-picker-modal">
             <div class="date-picker-header">
-                <h3>Select Next Meeting Date</h3>
+                <h3>Select Next Meeting Date & Time</h3>
                 <button class="date-picker-close" onclick="closeDatePicker()">×</button>
             </div>
             <div class="date-picker-body">
-                <input type="date" id="dateInput" class="date-input" value="${currentValue}">
+                <div class="date-time-inputs">
+                    <div class="form-group">
+                        <label for="dateInput">Date</label>
+                        <input type="date" id="dateInput" class="date-input" value="${currentValue}">
+                    </div>
+                    <div class="form-group">
+                        <label for="timeInput">Time (Optional)</label>
+                        <input type="time" id="timeInput" class="time-input" value="${currentTime}">
+                    </div>
+                </div>
+                <div class="quick-time-buttons">
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('09:00')">9:00 AM</button>
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('10:00')">10:00 AM</button>
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('11:00')">11:00 AM</button>
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('14:00')">2:00 PM</button>
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('15:00')">3:00 PM</button>
+                    <button type="button" class="btn-quick-time" onclick="setQuickTime('16:00')">4:00 PM</button>
+                </div>
                 <div class="date-picker-actions">
                     <button class="btn btn-secondary" onclick="closeDatePicker()">Cancel</button>
                     ${hasDate ? `<button class="btn btn-danger-outline" onclick="clearDateSelection(${meetingId}, '${field}')">
@@ -1229,7 +1707,7 @@ function openDatePicker(meetingId, field) {
                         </svg>
                         Clear Date
                     </button>` : ''}
-                    <button class="btn btn-primary" onclick="saveDateSelection(${meetingId}, '${field}')">Save Date</button>
+                    <button class="btn btn-primary" onclick="saveDateSelection(${meetingId}, '${field}')">Save</button>
                 </div>
             </div>
         </div>
@@ -1267,6 +1745,38 @@ function extractDateFromText(text) {
     }
 
     return '';
+}
+
+function extractTimeFromText(text) {
+    // Try to extract time in various formats
+    // Match HH:MM AM/PM or HH:MM (24-hour)
+    const timeMatch = text.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = timeMatch[2];
+        const meridiem = timeMatch[3];
+
+        // Convert to 24-hour format if AM/PM is present
+        if (meridiem) {
+            if (meridiem.toUpperCase() === 'PM' && hours !== 12) {
+                hours += 12;
+            } else if (meridiem.toUpperCase() === 'AM' && hours === 12) {
+                hours = 0;
+            }
+        }
+
+        return `${hours.toString().padStart(2, '0')}:${minutes}`;
+    }
+
+    return '';
+}
+
+function setQuickTime(time) {
+    const timeInput = document.getElementById('timeInput');
+    if (timeInput) {
+        timeInput.value = time;
+        timeInput.focus();
+    }
 }
 
 function closeDatePicker() {
@@ -1323,7 +1833,9 @@ async function clearDateSelection(meetingId, field) {
 
 async function saveDateSelection(meetingId, field) {
     const dateInput = document.getElementById('dateInput');
+    const timeInput = document.getElementById('timeInput');
     const selectedDate = dateInput.value;
+    const selectedTime = timeInput ? timeInput.value : '';
 
     if (!selectedDate) {
         showError('Please select a date');
@@ -1351,6 +1863,16 @@ async function saveDateSelection(meetingId, field) {
             day: 'numeric'
         });
 
+        // Format time if provided
+        let formattedDateTime = formattedDate;
+        if (selectedTime) {
+            const [hours, minutes] = selectedTime.split(':');
+            const hour = parseInt(hours);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+            formattedDateTime = `${formattedDate} at ${displayHour}:${minutes} ${ampm}`;
+        }
+
         // Get current meeting data
         const response = await fetch(`/api/meetings/${meetingId}`);
         const previousMeeting = await response.json();
@@ -1359,15 +1881,15 @@ async function saveDateSelection(meetingId, field) {
         // Get existing content (notes)
         let existingContent = meeting[field] || '';
 
-        // Remove any existing date from the beginning (if present)
-        // Pattern matches dates like "Fri, Dec 6, 2024" or similar formats
-        existingContent = existingContent.replace(/^[A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}\s*-?\s*/i, '').trim();
+        // Remove any existing date and time from the beginning (if present)
+        // Pattern matches dates like "Fri, Dec 6, 2024" with optional time
+        existingContent = existingContent.replace(/^[A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}(\s+at\s+\d{1,2}:\d{2}\s+(AM|PM))?\s*-?\s*/i, '').trim();
 
-        // Prepend the new date to existing notes
+        // Prepend the new date (with time if provided) to existing notes
         if (existingContent && existingContent !== '-') {
-            meeting[field] = `${formattedDate} - ${existingContent}`;
+            meeting[field] = `${formattedDateTime} - ${existingContent}`;
         } else {
-            meeting[field] = formattedDate;
+            meeting[field] = formattedDateTime;
         }
 
         // Save to server
